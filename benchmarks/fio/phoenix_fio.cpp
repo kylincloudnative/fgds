@@ -23,10 +23,10 @@ extern "C" {
 
 static std::atomic<bool> driver_inited{false};
 
-struct nds_options {
+struct phoenix_options {
     void *pad;
     int dummy;
-    int enable_nds;
+    int enable_phoenix;
     int device_id;
     int enable_iouring;
 };
@@ -36,28 +36,28 @@ static struct fio_option options[] = {
         .name       = "enable_iouring",
         .lname      = "Enable io_uring backend",
         .type       = FIO_OPT_INT,
-        .off1       = offsetof(struct nds_options, enable_iouring),
+        .off1       = offsetof(struct phoenix_options, enable_iouring),
         .help       = "Set to 1 to enable io_uring backend",
         .def        = "0",
         .category = FIO_OPT_C_ENGINE,
         .group = FIO_OPT_G_NETIO,
     },
     {
-        .name       = "enable_nds",
-        .lname      = "Enable NDS optimizations",
+        .name       = "enable_phoenix",
+        .lname      = "Enable phoenix optimizations",
         .type       = FIO_OPT_INT,
-        .off1       = offsetof(struct nds_options, enable_nds),
-        .help       = "Set to 1 to enable NDS optimizations",
+        .off1       = offsetof(struct phoenix_options, enable_phoenix),
+        .help       = "Set to 1 to enable phoenix optimizations",
         .def        = "0",
         .category = FIO_OPT_C_ENGINE,
         .group = FIO_OPT_G_NETIO,
     },
     {
         .name       = "device_id",
-        .lname      = "NDS Device ID",
+        .lname      = "phoenix Device ID",
         .type       = FIO_OPT_INT,
-        .off1       = offsetof(struct nds_options, device_id),
-        .help       = "Set the NDS device ID to use",
+        .off1       = offsetof(struct phoenix_options, device_id),
+        .help       = "Set the phoenix device ID to use",
         .def        = "0",
         .category = FIO_OPT_C_ENGINE,
         .group = FIO_OPT_G_NETIO,
@@ -68,7 +68,7 @@ static struct fio_option options[] = {
 
 #define LAST_POS(f) ((f)->engine_pos)
 
-struct nds_data {
+struct phoenix_data {
     struct io_uring *read_ring;
     struct io_uring *write_ring;
     void *dev_buf;
@@ -81,13 +81,13 @@ struct nds_data {
 };
 
 
-static int nds_init(struct thread_data *td) {
-    td->io_ops_data = static_cast<void *>(new nds_data);
-    struct nds_options * opts = (struct nds_options *)td->eo;
-    auto data = static_cast<nds_data *>(td->io_ops_data);
+static int phoenix_init(struct thread_data *td) {
+    td->io_ops_data = static_cast<void *>(new phoenix_data);
+    struct phoenix_options * opts = (struct phoenix_options *)td->eo;
+    auto data = static_cast<phoenix_data *>(td->io_ops_data);
     data->last_ddir = DDIR_READ;
 
-    if (opts->enable_nds) {
+    if (opts->enable_phoenix) {
         if (!driver_inited) {
             driver_inited = true;
             if (phxfs_open(opts->device_id) != 0) {
@@ -97,12 +97,12 @@ static int nds_init(struct thread_data *td) {
         }
     }
 
-    std::cout << "nds_init: enable_nds=" << opts->enable_nds
+    std::cout << "phoenix_init: enable_phoenix=" << opts->enable_phoenix
               << ", enable_iouring=" << opts->enable_iouring
               << ", device_id=" << opts->device_id << std::endl;
 
-    if (opts->enable_nds && opts->enable_iouring) {
-        std::cout << "Using NDS io_uring backend" << std::endl;
+    if (opts->enable_phoenix && opts->enable_iouring) {
+        std::cout << "Using phoenix io_uring backend" << std::endl;
 
         data->read_ring = new io_uring();
         data->write_ring = new io_uring();
@@ -156,9 +156,9 @@ static int fio_io_end(struct thread_data *td, struct io_u *io_u, int ret) {
     return FIO_Q_COMPLETED;
 }
 
-static enum fio_q_status nds_queue(struct thread_data *td, struct io_u *io_u) {
-    auto &vec = static_cast<nds_data *>(td->io_ops_data)->io_us;
-    auto *sd = static_cast<nds_data *>(td->io_ops_data);
+static enum fio_q_status phoenix_queue(struct thread_data *td, struct io_u *io_u) {
+    auto &vec = static_cast<phoenix_data *>(td->io_ops_data)->io_us;
+    auto *sd = static_cast<phoenix_data *>(td->io_ops_data);
 
     if (io_u->ddir != sd->last_ddir) {
         if (sd->queued != 0) {
@@ -177,7 +177,7 @@ static enum fio_q_status nds_queue(struct thread_data *td, struct io_u *io_u) {
     }
 }
 
-static int nds_iouring_commit(struct nds_options *opts, nds_data *sd) {
+static int phoenix_iouring_commit(struct phoenix_options *opts, phoenix_data *sd) {
     bool read = (sd->last_ddir == DDIR_READ);
     auto &vec = sd->io_us;
     auto ring = read ? sd->read_ring : sd->write_ring;
@@ -240,7 +240,7 @@ static int nds_iouring_commit(struct nds_options *opts, nds_data *sd) {
    return 0;
 }
 
-static int nds_sync_commit(struct nds_options *opts, nds_data *sd) {
+static int phoenix_sync_commit(struct phoenix_options *opts, phoenix_data *sd) {
     bool read = (sd->last_ddir == DDIR_READ);
     auto &vec = sd->io_us;
     int res;
@@ -264,7 +264,7 @@ static int nds_sync_commit(struct nds_options *opts, nds_data *sd) {
     return 0;
 }
 
-static int nds_native_commit(struct nds_options *opts, nds_data *sd) {
+static int phoenix_native_commit(struct phoenix_options *opts, phoenix_data *sd) {
     bool read = (sd->last_ddir == DDIR_READ);
     auto &vec = sd->io_us;
     int res;
@@ -293,10 +293,10 @@ static int nds_native_commit(struct nds_options *opts, nds_data *sd) {
 }
 
 
-static int nds_commit(struct thread_data *td) {
-    auto sd = static_cast<nds_data *>(td->io_ops_data);
+static int phoenix_commit(struct thread_data *td) {
+    auto sd = static_cast<phoenix_data *>(td->io_ops_data);
     auto &vec = sd->io_us;
-    auto opts = (struct nds_options *)td->eo;
+    auto opts = (struct phoenix_options *)td->eo;
 
     if (sd->queued == 0) {
         return 0;
@@ -304,14 +304,14 @@ static int nds_commit(struct thread_data *td) {
 
     io_u_mark_submit(td, sd->queued);
     int res = 0;
-    if (opts->enable_nds && opts->enable_iouring)
-        res = nds_iouring_commit(opts, sd);
+    if (opts->enable_phoenix && opts->enable_iouring)
+        res = phoenix_iouring_commit(opts, sd);
     
-    if (opts->enable_nds && !opts->enable_iouring)
-        res = nds_sync_commit(opts, sd);
+    if (opts->enable_phoenix && !opts->enable_iouring)
+        res = phoenix_sync_commit(opts, sd);
 
-    if (!opts->enable_nds)
-        res = nds_native_commit(opts, sd);
+    if (!opts->enable_phoenix)
+        res = phoenix_native_commit(opts, sd);
 
     if (res < 0) {
         std::cerr << "Commit failed" << std::endl;
@@ -324,9 +324,9 @@ static int nds_commit(struct thread_data *td) {
     return 0;
 }
 
-static int nds_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *ts) {
-    auto &vec = static_cast<nds_data *>(td->io_ops_data)->io_us;
-    auto *sd = static_cast<nds_data *>(td->io_ops_data);
+static int phoenix_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *ts) {
+    auto &vec = static_cast<phoenix_data *>(td->io_ops_data)->io_us;
+    auto *sd = static_cast<phoenix_data *>(td->io_ops_data);
     int ret = 0;
     if (min) {
         ret = sd->events;
@@ -336,20 +336,20 @@ static int nds_getevents(struct thread_data *td, unsigned int min, unsigned int 
     return ret;
 }
 
-static struct io_u *nds_event(struct thread_data *td, int event) {
-    auto &vec = static_cast<nds_data *>(td->io_ops_data)->io_us;
+static struct io_u *phoenix_event(struct thread_data *td, int event) {
+    auto &vec = static_cast<phoenix_data *>(td->io_ops_data)->io_us;
     return vec[event];
 }
 
-static void nds_cleanup(struct thread_data *td) {
-    auto opts = (struct nds_options *)td->eo;
-    if (opts->enable_nds && driver_inited) {
+static void phoenix_cleanup(struct thread_data *td) {
+    auto opts = (struct phoenix_options *)td->eo;
+    if (opts->enable_phoenix && driver_inited) {
         phxfs_close(opts->device_id);
         driver_inited = false;
     }
 
-    if (opts->enable_nds && opts->enable_iouring) {
-        auto data = static_cast<nds_data *>(td->io_ops_data);
+    if (opts->enable_phoenix && opts->enable_iouring) {
+        auto data = static_cast<phoenix_data *>(td->io_ops_data);
         if (data->read_ring) {
             io_uring_queue_exit(data->read_ring);
             delete data->read_ring;
@@ -361,10 +361,10 @@ static void nds_cleanup(struct thread_data *td) {
         }
     }
 
-    delete static_cast<nds_data *>(td->io_ops_data);
+    delete static_cast<phoenix_data *>(td->io_ops_data);
 }
 
-static int nds_file_open(struct thread_data *td, struct fio_file *f) {
+static int phoenix_file_open(struct thread_data *td, struct fio_file *f) {
     int flags = 0;
     if (td_write(td)) {
         if (!read_only) {
@@ -379,20 +379,20 @@ static int nds_file_open(struct thread_data *td, struct fio_file *f) {
     }
 
     f->fd = open(f->file_name, flags | O_DIRECT);
-    std::cout << "nds open file: " << f->file_name << " fd: " << f->fd << std::endl;
+    std::cout << "phoenix open file: " << f->file_name << " fd: " << f->fd << std::endl;
     td->o.open_files++;
     return 0;
 }
 
-static int nds_file_close(struct thread_data *td, struct fio_file *f) {
+static int phoenix_file_close(struct thread_data *td, struct fio_file *f) {
     close(f->fd);
     f->fd = -1;
     return 0;
 }
 
-static int nds_buffer_alloc(struct thread_data *td, size_t total_mem) {
-    struct nds_options *options = static_cast<nds_options *>(td->eo);
-    auto data = static_cast<nds_data *>(td->io_ops_data);
+static int phoenix_buffer_alloc(struct thread_data *td, size_t total_mem) {
+    struct phoenix_options *options = static_cast<phoenix_options *>(td->eo);
+    auto data = static_cast<phoenix_data *>(td->io_ops_data);
     auto &dev_buf = data->dev_buf;
     auto &host_buf = data->host_buf;
 
@@ -407,7 +407,7 @@ static int nds_buffer_alloc(struct thread_data *td, size_t total_mem) {
         std::cerr << "cudaMalloc failed: " << cudaGetErrorString(err) << std::endl;
         return -ENOMEM;
     }
-    if (options->enable_nds) {
+    if (options->enable_phoenix) {
         void *host_ptr = nullptr;
         if (phxfs_regmem(options->device_id, dev_buf, total_mem, &host_ptr) != 0) {
             std::cerr << "phxfs_regmem failed" << std::endl;
@@ -426,13 +426,13 @@ static int nds_buffer_alloc(struct thread_data *td, size_t total_mem) {
     return 0;
 }
 
-static void nds_buffer_free(struct thread_data *td) {
-    auto option = (struct nds_options *)td->eo;
-    auto data = static_cast<nds_data *>(td->io_ops_data);
+static void phoenix_buffer_free(struct thread_data *td) {
+    auto option = (struct phoenix_options *)td->eo;
+    auto data = static_cast<phoenix_data *>(td->io_ops_data);
     auto &dev_buf = data->dev_buf;
     auto &host_buf = data->host_buf;
 
-    if (option->enable_nds) {
+    if (option->enable_phoenix) {
         phxfs_deregmem(option->device_id, dev_buf, data->buf_size);
     } else {
         cudaFreeHost(host_buf);
@@ -444,29 +444,29 @@ static void nds_buffer_free(struct thread_data *td) {
     td->orig_buffer = nullptr;
 }
 
-static int nds_invalidate(struct thread_data *td, struct fio_file *f) {
+static int phoenix_invalidate(struct thread_data *td, struct fio_file *f) {
     return 0;
 }
 
 
 extern "C" {
 struct ioengine_ops ioengine = {
-    .name               = "nds_ioengine",
+    .name               = "phoenix_ioengine",
     .version            = FIO_IOOPS_VERSION,
-    .flags              = FIO_NODISKUTIL,
-    .init               = nds_init,
-    .queue              = nds_queue,
-    .commit             = nds_commit,
-    .getevents          = nds_getevents,
-    .event              = nds_event,
-    .cleanup            = nds_cleanup,
-    .open_file          = nds_file_open,
-    .close_file         = nds_file_close,
-    .invalidate         = nds_invalidate,
-    .get_file_size      = generic_get_file_size,
-    .iomem_alloc        = nds_buffer_alloc,
-    .iomem_free         = nds_buffer_free,
-    .option_struct_size = sizeof(struct nds_options),
+    .flags               = FIO_NODISKUTIL,
+    .init               = phoenix_init,
+    .queue              = phoenix_queue,
+    .commit             = phoenix_commit,
+    .getevents          = phoenix_getevents,
+    .event              = phoenix_event,
+    .cleanup            = phoenix_cleanup,
+    .open_file           = phoenix_file_open,
+    .close_file          = phoenix_file_close,
+    .invalidate         = phoenix_invalidate,
+    .get_file_size       = generic_get_file_size,
+    .iomem_alloc        = phoenix_buffer_alloc,
+    .iomem_free         = phoenix_buffer_free,
+    .option_struct_size = sizeof(struct phoenix_options),
     .options            = options,
 };
 

@@ -7,7 +7,7 @@ iodepth_batch_complete_min=16
 iodepth_batch_complete_max=16
 direct=1
 device_id=0
-enable_nds=1
+enable_phoenix=1
 enable_iouring=1
 group_reporting
 numjobs=2
